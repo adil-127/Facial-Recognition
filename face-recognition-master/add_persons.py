@@ -27,15 +27,7 @@ recognizer = iresnet_inference(
 
 @torch.no_grad()
 def get_feature(face_image):
-    """
-    Extract facial features from an image using the face recognition model.
 
-    Args:
-        face_image (numpy.ndarray): Input facial image.
-
-    Returns:
-        numpy.ndarray: Extracted facial features.
-    """
     # Define a series of image preprocessing steps
     face_preprocess = transforms.Compose(
         [
@@ -72,7 +64,7 @@ def add_persons(backup_dir, add_persons_dir, faces_save_dir, features_path):
     # Initialize lists to store names and features of added images
     images_name = []
     images_emb = []
-
+    temp=0
     # Read the folder with images of the new person, extract faces, and save them
     for name_person in os.listdir(add_persons_dir):
         person_image_path = os.path.join(add_persons_dir, name_person)
@@ -104,10 +96,14 @@ def add_persons(backup_dir, add_persons_dir, faces_save_dir, features_path):
 
                     # Save the face to the database
                     cv2.imwrite(path_save_face, face_image)
-
+                    feature=get_feature(face_image=face_image)
                     # Extract features from the face
-                    images_emb.append(get_feature(face_image=face_image))
+                    images_emb.append(feature)
+                    print(f'Feature shape for face {temp}: {feature.shape}')
+                    temp+=1
                     images_name.append(name_person)
+
+
 
     # Check if no new person is found
     if images_emb == [] and images_name == []:
