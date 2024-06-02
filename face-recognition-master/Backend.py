@@ -265,7 +265,7 @@ from face_tracking.tracker.byte_tracker import BYTETracker
 from face_tracking.tracker.visualize import plot_tracking
 from Anti_spoofing.test import test
 from collections import Counter
-
+from fastapi.middleware.cors import CORSMiddleware
 
 # Device configuration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -294,11 +294,28 @@ frame_queue = Queue()
 
 app = FastAPI()
 
+origins = [
+    "http://localhost",
+    "http://localhost:42543",  # Add the origins of your Flutter app here
+]
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],  # Add the allowed HTTP methods
+    allow_headers=["*"],  # You can restrict this to specific headers if needed
+)
+
+
 class FrameData(BaseModel):
     frame: list
+    # name: str
 
 @app.post("/process-frame/")
 async def Getframe(frame_data: FrameData):
+    print(frame_data.frame)
     file_name = "./face_tracking/config/config_tracking.yaml"
     config_tracking = load_config(file_name)
     caption_list=[]
@@ -310,33 +327,32 @@ async def Getframe(frame_data: FrameData):
     #     caption_list.append(caption)
     # occurence_count = Counter(caption_list)    
     # caption=occurence_count.most_common(1)[0][0]
-   
-    for frame_bytes in frame_data.frame:  
-        
-        try:
-            nparr = np.frombuffer(base64.b64decode(frame_bytes), np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            caption = await tracking(detector, config_tracking, frame)
-        except (ValueError) as e:  # Handle specific exceptions
-            print(f"Error processing frame: {e}")
-            caption = "Unknown"  # Default caption for recoverable errors
-        caption_list.append(caption)
+    try:
+        for frame_bytes in frame_data.frame:  
+            
+            try:
+                nparr = np.frombuffer(base64.b64decode(frame_bytes), np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                print(f'Decoded frame:                          {frame}')
+                caption = await tracking(detector, config_tracking, frame)
+            except (ValueError) as e:  # Handle specific exceptions
+                print(f"Error processing frame: {e}")
+                caption = "Unknown"  # Default caption for recoverable errors
+            caption_list.append(caption)
 
-    occurence_count = Counter(caption_list)    
-    caption=occurence_count.most_common(1)[0][0]    
+        occurence_count = Counter(caption_list)    
+        caption=occurence_count.most_common(1)[0][0]    
         
     
-    return {"status": "frame received",'classification':caption}
-
-
-# @app.get("/latest-caption/")
-# async def get_latest_caption():
-#     if not data_mapping["tracking_ids"]:
-#         return {'latest_caption':'No caption available'}
+        return {"status": "frame received",'classification':caption}
     
-#     latest_tracking_id = data_mapping["tracking_ids"][-1]
-#     caption = id_face_mapping.get(latest_tracking_id, "No caption available")
-#     return {"latest_caption": caption}
+    except Exception as e:
+        return {"error": str(e)}
+    
+    
+    
+
 
 
 
@@ -411,6 +427,49 @@ def get_feature(face_image):
     emb_img_face = recognizer(face_image).cpu().numpy()
     images_emb = emb_img_face / np.linalg.norm(emb_img_face)
     return images_emb
+
+# @torch.no_grad()
+# def get_feature(face_image):
+#     face_preprocess = transforms.Compose([
+#         transforms.ToTensor(),
+#         transforms.Resize((112, 112)),
+#         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+#     ])
+#     face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+#     face_image = face_preprocess(face_image).unsqueeze(0).to(device)
+#     emb_img_face = recognizer(face_image).cpu().numpy()
+#     normalized_emb_img_face = emb_img_face / np.linalg.norm(emb_img_face)
+#     return normalized_emb_img_face.flatten()  # Ensure flattened array
+
+@torch.no_grad()
+def get_feature_for_Register(face_image):
+
+    # Define a series of image preprocessing steps
+    face_preprocess = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Resize((112, 112)),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        ]
+    )
+
+    # Convert the image to RGB format
+    face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+
+    # Apply the defined preprocessing to the image
+    face_image = face_preprocess(face_image).unsqueeze(0).to(device)
+
+    # Use the model to obtain facial features
+    emb_img_face = recognizer(face_image)[0].cpu().numpy()
+
+    # Normalize the features
+    images_emb = emb_img_face / np.linalg.norm(emb_img_face)
+    return images_emb
+
+
+
+
+
 
 def recognition(face_image):
     query_emb = get_feature(face_image)
@@ -506,6 +565,118 @@ def main():
     # Start recognition thread
     thread_recognize = threading.Thread(target=recognize)
     thread_recognize.start()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class RegisterFrame(BaseModel):
+    frame: list
+    name: str
+
+@app.post("/Register_User/")
+async def Register(frame_data: RegisterFrame):
+    try:
+        print(f"frameData                  :{frame_data.frame}")
+        
+        print(f"Name                  :{frame_data.name}")
+        await add_persons(frame_data.frame,frame_data.name)
+        return {"status": 'User Registered'}
+   
+    except Exception as e:
+        return {"status": str(e)}
+
+def add_persons(images,name):
+
+    # Initialize lists to store names and features of added images
+    images_name = []
+    images_emb = []
+    features_path='./datasets/face_features/feature'
+    temp=0
+    # Read the folder with images of the new person, extract faces, and save them
+    try:
+        for input_image in images:
+
+                nparr = np.frombuffer(base64.b64decode(input_image), np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                print(f'Decoded frame: {frame.shape}')
+                # Detect faces and landmarks using the face detector
+                bboxes, landmarks = detector.detect(image=frame)
+                print(len(bboxes))
+                # Extract faces
+                for i in range(len(bboxes)):
+                    print(f'Number of detected faces: {len(bboxes)}')
+
+                    # Get the location of the face
+                    x1, y1, x2, y2, score = bboxes[i]
+
+                    # Extract the face from the image
+                    face_image = frame[y1:y2, x1:x2]
+                    print(f'Face {temp} shape: {face_image.shape}')
+                    temp+=1
+                    print
+                    # Extract features from the face
+                    feature = get_feature_for_Register(face_image=face_image)
+                    print(f'Feature shape for face {temp}: {feature.shape}')
+                    
+                    images_emb.append(feature)
+                    images_name.append(name)
+                    print(name)
+                    
+    except (ValueError) as e:  # Handle specific exceptions
+        print(f"Error processing frame: {e}")
+
+    # Check if no new person is found
+    if images_emb == [] and images_name == []:
+        print("No new person found!")
+        return None
+    
+    # Convert lists to arrays
+    images_emb = np.array(images_emb)
+    images_name = np.array(images_name)
+    print("Shape of images_emb:", images_emb.shape)
+    print("Shape of images_name:", images_name.shape)
+
+    # Read existing features if available
+    features = read_features(features_path)
+    try:
+        if features is not None:
+            # Unpack existing features
+            old_images_name, old_images_emb = features
+
+            # Combine new features with existing features
+            images_name = np.hstack((old_images_name, images_name))
+            images_emb = np.vstack((old_images_emb, images_emb))
+
+            print("Update features!")
+    except ValueError as e:
+        print("Error converting to numpy array:", e)
+    # Save the combined features
+    np.savez_compressed(features_path, images_name=images_name, images_emb=images_emb)
+    
+    print("Successfully added new person!")
+    return True
+
+
+
+
+
 
 if __name__ == "__main__":
     
