@@ -37,20 +37,20 @@ I have also created a Flutter Mobile app for the User Interface.
 
 ## API Reference
 
-#### Get all items
+#### Face Recognition
 
 ```http
-  POST /process-frame/
+  /process-frame/
 ```
 
 | Parameter | Type     | Description                |
 | :-------- | :------- | :------------------------- |
 | `frame` | `List` | **Required**. Frames should base64 encoded |
 
-#### Get item
+#### Registering facial features
 
 ```http
-  POST /Register_User/
+   /Register_User/
 ```
 
 | Parameter | Type     | Description                       |
